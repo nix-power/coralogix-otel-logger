@@ -35,6 +35,7 @@ class CoralogixOTelLogger:
         api_key: Optional[str] = None,
         domain: Optional[str] = None,
         log_level: str = "info",
+        flush_delay_ms=5000,
         cert_path: Optional[str] = None
     ):
         self.app_name = app_name
@@ -86,7 +87,15 @@ class CoralogixOTelLogger:
                 exporter_kwargs["certificate_file"] = self.cert_path
 
             exporter = OTLPLogExporter(**exporter_kwargs)
-            self.provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+            self.provider.add_log_record_processor(
+
+            BatchLogRecordProcessor(
+                exporter,
+                max_queue_size=2048,
+                max_export_batch_size=50,
+                schedule_delay_millis=flush_delay_ms
+               )
+            )
 
         self.logger = logging.getLogger(self.logger_name)
         self.logger.setLevel(self.log_level_int)
