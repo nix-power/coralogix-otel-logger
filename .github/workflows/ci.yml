@@ -24,9 +24,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install flake8
 
-    - name: Run Flake8
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Run Flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   unittest:
     name: Pytest Unit Tests
@@ -44,9 +44,7 @@ jobs:
       - name: Install Package and Test Dependencies
         run: |
           python -m pip install --upgrade pip
-
-          pip install requirements.txt
-
+          pip install -r requirements.txt
           pip install --editable .
 
       - name: Run Test Suite
