@@ -1,0 +1,18 @@
+[flake8]
+# Modern line length standard
+max-line-length = 140
+
+# Ignore directories that shouldn't be linted
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    venv,
+    .venv,
+    *.egg-info
+
+# Ignore specific formatting rules that conflict with modern Python (like Black formatter)
+# E203: Whitespace before ':'
+# W503: Line break occurred before a binary operator
+ignore = E203, W503
