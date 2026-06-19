@@ -1,4 +1,8 @@
 #!/bin/bash
+#--------------------------------------------------------------
+#  Just a local example.
+#  Build and PyPi upload is done via CI on Release Publishing.
+#--------------------------------------------------------------
 set -e
 
 echo "🧹 Cleaning up old build artifacts..."
