@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 
 # Assuming your class is in a file named cxlogger.py
 from cxlogger import CoralogixOTelLogger
+from cxlogger.exceptions import CoralogixConfigurationError
 
 @pytest.fixture(autouse=True)
 def mock_otel_infrastructure():
@@ -36,7 +37,7 @@ class TestCoralogixOTelLogger:
     # ==========================================
     def test_init_fails_when_both_keys_missing(self, clean_env):
         """CRASH: No environment variable AND no constructor argument."""
-        with pytest.raises(ValueError, match="Coralogix API key is missing"):
+        with pytest.raises(CoralogixConfigurationError, match="Coralogix API key is missing"):
             CoralogixOTelLogger(app_name="app", subsystem_name="sub")
 
     def test_init_succeeds_with_constructor_arg_only(self, clean_env):
@@ -47,7 +48,7 @@ class TestCoralogixOTelLogger:
                 subsystem_name="sub",
                 api_key="explicit-key-123"
             )
-        except ValueError:
+        except CoralogixConfigurationError:
             pytest.fail("Logger crashed even though 'api_key' was passed to the constructor!")
 
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key-456"})
@@ -55,7 +56,7 @@ class TestCoralogixOTelLogger:
         """SUCCESS: No constructor argument, but environment variable is present."""
         try:
             logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
-        except ValueError:
+        except CoralogixConfigurationError:
             pytest.fail("Logger crashed even though 'CORALOGIX_API_KEY' env var was present!")
 
     def test_init_with_explicit_args(self, clean_env):
@@ -97,18 +98,18 @@ class TestCoralogixOTelLogger:
             api_key="test-key",
             flush_delay_ms=200 # Pass a custom explicit delay
         )
-        
+
         mock_processor = mock_otel_infrastructure["processor"]
-        
+
         # Ensure the processor was instantiated
         mock_processor.assert_called_once()
-        
+
         # Inspect the arguments passed to BatchLogRecordProcessor
         _, kwargs = mock_processor.call_args
-        
+
         # Verify the dynamic parameter
         assert kwargs.get("schedule_delay_millis") == 200
-        
+
         # Verify our hardcoded structural safety boundaries
         assert kwargs.get("max_export_batch_size") == 50
         assert kwargs.get("max_queue_size") == 2048
@@ -118,10 +119,10 @@ class TestCoralogixOTelLogger:
     def test_default_flush_delay_routing(self, mock_get_provider, mock_otel_infrastructure):
         """Ensure the default flush delay is exactly 5000ms if omitted."""
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
-        
+
         mock_processor = mock_otel_infrastructure["processor"]
         _, kwargs = mock_processor.call_args
-        
+
         assert kwargs.get("schedule_delay_millis") == 5000
 
     # ==========================================
@@ -289,8 +290,8 @@ class TestCoralogixOTelLogger:
             with CoralogixOTelLogger(app_name="app", subsystem_name="sub") as logger:
                 assert isinstance(logger, CoralogixOTelLogger)
                 # It should NOT flush while still inside the block
-                mock_flush.assert_not_called() 
-                
+                mock_flush.assert_not_called()
+
             # The exact moment we exit the block, it should have flushed automatically
             mock_flush.assert_called_once()
 
@@ -302,8 +303,8 @@ class TestCoralogixOTelLogger:
             with pytest.raises(ValueError, match="App crashed!"):
                 with CoralogixOTelLogger(app_name="app", subsystem_name="sub"):
                     raise ValueError("App crashed!")
-            
-            # Crucially: Even if the app crashes, __exit__ should STILL attempt to 
+
+            # Crucially: Even if the app crashes, __exit__ should STILL attempt to
             # flush the logs so we capture the error before the container dies!
             mock_flush.assert_called_once()
 

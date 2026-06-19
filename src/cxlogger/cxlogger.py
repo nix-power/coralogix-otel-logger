@@ -10,6 +10,8 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 
+from .exceptions import CoralogixConfigurationError
+
 
 class CoralogixOTelLogger:
     """
@@ -45,7 +47,7 @@ class CoralogixOTelLogger:
 
         effective_api_key = api_key or os.environ.get("CORALOGIX_API_KEY")
         if not effective_api_key:
-            raise ValueError(
+            raise CoralogixConfigurationError(
                 "Coralogix API key is missing. You must provide it via the 'api_key' parameter "
                 "or set the 'CORALOGIX_API_KEY' environment variable."
             )
