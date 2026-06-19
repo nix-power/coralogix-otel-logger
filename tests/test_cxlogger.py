@@ -31,11 +31,9 @@ def clean_env():
         yield
 
 class TestCoralogixOTelLogger:
-
     # ==========================================
     # 1. INITIALIZATION & CONFIGURATION TESTS
     # ==========================================
-
     def test_init_fails_when_both_keys_missing(self, clean_env):
         """CRASH: No environment variable AND no constructor argument."""
         with pytest.raises(ValueError, match="Coralogix API key is missing"):
@@ -89,7 +87,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 1.5 PROCESSOR ROUTING TESTS (NEW)
     # ==========================================
-
     # We mock get_logger_provider to simulate a "fresh" start so it doesn't skip initialization
     @patch('cxlogger.cxlogger.otel_logs.get_logger_provider', return_value=MagicMock())
     def test_flush_delay_parameter_routing(self, mock_get_provider, mock_otel_infrastructure, clean_env):
@@ -130,7 +127,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 2. Singleton LoggerProvider Reuse Test and Handler Deduplication
     # ==========================================
-
     def test_reuses_existing_logger_provider(self, clean_env):
         """
         Ensure that if an OTel LoggerProvider is already active in the global registry,
@@ -184,7 +180,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 3. STRING REPRESENTATION TESTS
     # ==========================================
-
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_str_and_repr(self):
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub", log_level="warning")
@@ -198,7 +193,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 4. PAYLOAD TRANSFORMATION & SAFETY TESTS
     # ==========================================
-
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_valid_payload_transformation(self):
         """Test that a valid dictionary is properly merged with the message."""
@@ -253,7 +247,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 5. LOGGING METHOD ROUTING TESTS
     # ==========================================
-
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     @pytest.mark.parametrize("method_name, expected_level", [
         ("debug", logging.DEBUG),
@@ -276,7 +269,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     # 6. FLUSH MECHANISM TEST
     # ==========================================
-
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_force_flush(self):
         """Test that the flush method successfully calls the OTel provider."""
@@ -286,3 +278,43 @@ class TestCoralogixOTelLogger:
 
         logger.flush()
         logger.provider.force_flush.assert_called_once()
+
+    # ==========================================
+    # 7. CONTEXT MANAGER TESTS
+    # ==========================================
+    @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
+    def test_context_manager_normal_execution(self):
+        """Test that the 'with' block returns the logger and flushes on exit."""
+        with patch.object(CoralogixOTelLogger, 'flush') as mock_flush:
+            with CoralogixOTelLogger(app_name="app", subsystem_name="sub") as logger:
+                assert isinstance(logger, CoralogixOTelLogger)
+                # It should NOT flush while still inside the block
+                mock_flush.assert_not_called() 
+                
+            # The exact moment we exit the block, it should have flushed automatically
+            mock_flush.assert_called_once()
+
+    @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
+    def test_context_manager_exception_propagation(self):
+        """Ensure the context manager does NOT swallow application-level exceptions."""
+        with patch.object(CoralogixOTelLogger, 'flush') as mock_flush:
+            # We expect the ValueError to bubble up through the context manager
+            with pytest.raises(ValueError, match="App crashed!"):
+                with CoralogixOTelLogger(app_name="app", subsystem_name="sub"):
+                    raise ValueError("App crashed!")
+            
+            # Crucially: Even if the app crashes, __exit__ should STILL attempt to 
+            # flush the logs so we capture the error before the container dies!
+            mock_flush.assert_called_once()
+
+    @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
+    def test_context_manager_swallows_flush_errors(self):
+        """Ensure that if the telemetry flush itself fails, it doesn't crash the main app."""
+        # Force the flush method to simulate a hard network failure
+        with patch.object(CoralogixOTelLogger, 'flush', side_effect=Exception("Network down!")):
+            try:
+                with CoralogixOTelLogger(app_name="app", subsystem_name="sub"):
+                    pass # App does some normal work successfully
+            except Exception:
+                pytest.fail("The context manager allowed a background flush exception to crash the application!")
+
