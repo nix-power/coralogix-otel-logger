@@ -14,9 +14,9 @@ def mock_otel_infrastructure():
     This prevents the tests from spinning up background threads or trying
     to send real gRPC network requests to Coralogix during CI/CD.
     """
-    with patch('cxlogger.OTLPLogExporter') as mock_exporter, \
-         patch('cxlogger.BatchLogRecordProcessor') as mock_processor, \
-         patch('cxlogger.Resource.create') as mock_resource:
+    with patch('cxlogger.cxlogger.OTLPLogExporter') as mock_exporter, \
+         patch('cxlogger.cxlogger.BatchLogRecordProcessor') as mock_processor, \
+         patch('cxlogger.cxlogger.Resource.create') as mock_resource:
         yield
 
 @pytest.fixture
@@ -98,9 +98,9 @@ class TestCoralogixOTelLogger:
         mock_existing_provider = MagicMock(spec=LoggerProvider)
 
         # Force the global registry to return our fake provider
-        with patch('cxlogger.otel_logs.get_logger_provider', return_value=mock_existing_provider), \
-             patch('cxlogger.OTLPLogExporter') as mock_exporter, \
-             patch('cxlogger.Resource.create') as mock_resource:
+        with patch('cxlogger.cxlogger.otel_logs.get_logger_provider', return_value=mock_existing_provider), \
+             patch('cxlogger.cxlogger.OTLPLogExporter') as mock_exporter, \
+             patch('cxlogger.cxlogger.Resource.create') as mock_resource:
 
             logger = CoralogixOTelLogger(
                 app_name="app",
@@ -125,7 +125,7 @@ class TestCoralogixOTelLogger:
         from opentelemetry.sdk._logs import LoggingHandler
         import logging
 
-        with patch('cxlogger.OTLPLogExporter'), patch('cxlogger.Resource.create'):
+        with patch('cxlogger.cxlogger.OTLPLogExporter'), patch('cxlogger.cxlogger.Resource.create'):
             # First instantiation (e.g., in main.py)
             logger1 = CoralogixOTelLogger(
                 app_name="duplicate-test",
