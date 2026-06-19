@@ -266,31 +266,29 @@ class TestCoralogixOTelLogger:
         logger.flush()
         logger.provider.force_flush.assert_called_once()
 
-    # ==========================================
+   # ==========================================
     # 6. UPSTREAM RESILIENCE TESTS
     # ==========================================
 
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_upstream_failure_does_not_crash_app(self):
         """
-        Prove that because we use OTel's BatchLogRecordProcessor, upstream network timeouts,
-        401 Unauthorized auth drops, or 503 Gateway errors happen on the background thread
-        and DO NOT crash the main application thread.
+        Prove that even if a catastrophic failure occurs deep inside the logging
+        handler pipeline, it is safely contained and DOES NOT crash the main application thread.
         """
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
 
-        # Deeply mock the underlying OTel exporter's actual network send function
-        # to simulate a catastrophic connectivity or authentication failure.
-        with patch.object(logger.provider._active_processor._exporter, 'export') as mock_export:
-            # Force the background network request to throw a massive error
-            mock_export.side_effect = Exception("CRITICAL 401 UNAUTHORIZED OR TIMEOUT")
+        # Grab the attached OTel LoggingHandler directly from the standard logger
+        assert len(logger.logger.handlers) == 1
+        otel_handler = logger.logger.handlers[0]
 
+        # Force the handler's emit cycle to throw a critical error
+        # (simulating an OTel core engine drop, network blowout, or auth failure)
+        with patch.object(otel_handler, 'emit', side_effect=Exception("CRITICAL gRPC CORES BLOWN / 401 UNAUTHORIZED")):
             try:
-                # This drops the log into the memory queue. (Main thread)
-                logger.info("This log is doomed to fail in the background", payload={"test": True})
-
-                # Force the background thread to attempt the broken network push immediately
-                logger.flush()
+                # Attempt to log a message while the pipeline is completely broken
+                logger.info("This log is doomed to fail inside the pipeline")
 
             except Exception as e:
-                pytest.fail(f"The logger allowed an upstream background error to crash the main thread! Error: {e}")
+                # If this block triggers, the blast shield failed
+                pytest.fail(f"The logger allowed a pipeline error to crash the main thread! Error: {e}")
