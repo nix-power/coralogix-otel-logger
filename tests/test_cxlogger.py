@@ -90,7 +90,9 @@ class TestCoralogixOTelLogger:
     # 1.5 PROCESSOR ROUTING TESTS (NEW)
     # ==========================================
 
-    def test_flush_delay_parameter_routing(self, mock_otel_infrastructure, clean_env):
+    # We mock get_logger_provider to simulate a "fresh" start so it doesn't skip initialization
+    @patch('cxlogger.cxlogger.otel_logs.get_logger_provider', return_value=MagicMock())
+    def test_flush_delay_parameter_routing(self, mock_get_provider, mock_otel_infrastructure, clean_env):
         """Ensure flush_delay_ms and hardcoded safety boundaries are passed to the OTel Processor."""
         logger = CoralogixOTelLogger(
             app_name="app",
@@ -98,31 +100,32 @@ class TestCoralogixOTelLogger:
             api_key="test-key",
             flush_delay_ms=200 # Pass a custom explicit delay
         )
-
+        
         mock_processor = mock_otel_infrastructure["processor"]
-
+        
         # Ensure the processor was instantiated
         mock_processor.assert_called_once()
-
+        
         # Inspect the arguments passed to BatchLogRecordProcessor
         _, kwargs = mock_processor.call_args
-
+        
         # Verify the dynamic parameter
         assert kwargs.get("schedule_delay_millis") == 200
-
+        
         # Verify our hardcoded structural safety boundaries
         assert kwargs.get("max_export_batch_size") == 50
         assert kwargs.get("max_queue_size") == 2048
 
+    @patch('cxlogger.cxlogger.otel_logs.get_logger_provider', return_value=MagicMock())
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
-    def test_default_flush_delay_routing(self, mock_otel_infrastructure):
-        """Ensure the default flush delay is exactly 1000ms if omitted."""
+    def test_default_flush_delay_routing(self, mock_get_provider, mock_otel_infrastructure):
+        """Ensure the default flush delay is exactly 5000ms if omitted."""
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
-
+        
         mock_processor = mock_otel_infrastructure["processor"]
         _, kwargs = mock_processor.call_args
-
-        assert kwargs.get("schedule_delay_millis") == 1000
+        
+        assert kwargs.get("schedule_delay_millis") == 5000
 
     # ==========================================
     # 2. Singleton LoggerProvider Reuse Test and Handler Deduplication
