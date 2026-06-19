@@ -145,7 +145,7 @@ class CoralogixOTelLogger:
                 out_payload.update(payload)
             else:
                 out_payload.update({
-                    "event_type": "logger_misuse_error",
+                    "event_type": "logger_payload_type_error",
                     "logger_warning": f"Passed an invalid payload type ({type(payload).__name__}). Expected 'dict'.",
                     "rejected_raw_payload": str(payload)[:500]
                 })
