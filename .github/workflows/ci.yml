@@ -1,0 +1,53 @@
+name: Python CI Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint:
+    name: Flake8 Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Flake8
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+    - name: Run Flake8
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  unittest:
+    name: Pytest Unit Tests
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Package and Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+          pip install requirements.txt
+
+          pip install --editable .
+
+      - name: Run Test Suite
+        run: pytest tests/ -v
