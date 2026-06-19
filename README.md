@@ -39,9 +39,22 @@ Instead of hardcoding sensitive tokens or routing domains in your code, you can 
 
 ---
 
+## Tuning the Telemetry Transport
+
+Under the hood, this logger implements the OpenTelemetry `BatchLogRecordProcessor`. To protect the gRPC network transport boundary and prevent memory blowouts (like hitting Coralogix's 32KB per-log or 2MB per-batch limits), structural safety boundaries are strictly hardcoded:
+* `max_export_batch_size=50`
+* `max_queue_size=2048`
+
+However, **export latency is fully under your control** via the `flush_delay_ms` parameter in the constructor (defaults to `5000` ms).
+
+* **For long-running Daemons/Microservices:** Leave the default (`5000`). It optimizes network bandwidth by batching logs together over 5-second intervals.
+* **For ephemeral CI/CD automation scripts:** Set it low (e.g., `200`). This ensures high-throughput, low-latency execution without waiting for background timers.
+
+---
+
 ## Quick Start
 
-Initialize the logger once in your application entry point. It safely handles background batch buffering and registers a termination hook via `atexit` to flush remaining logs automatically when the process exits.
+Initialize the logger once in your application entry point.
 
 ```python
 import os
@@ -52,7 +65,8 @@ from cxlogger import CoralogixOTelLogger
 coralogix_logger = CoralogixOTelLogger(
     app_name="ldap-manager",
     subsystem_name="dynamic-secrets",
-    log_level="info"  # Optional: defaults to "info"
+    log_level="info",     # Optional: defaults to "info"
+    flush_delay_ms=5000   # Optional: defaults to 5000ms
 )
 
 # 2. Prepare structured dictionary data
@@ -61,8 +75,7 @@ audit_data = {
     "context": {
         "one": "45345",
         "two": "JLrffsd",
-        "pass": true,
-        ...
+        "pass": True
     }
 }
 
@@ -70,9 +83,41 @@ audit_data = {
 coralogix_logger.info("GitLab MR Security Audit Event", payload=audit_data)
 ```
 
-### Fail-Safe Typing Enforcement
+---
 
-To maintain perfectly predictable schemas across your team, the `payload` argument strictly expects a Python dictionary (`dict`). 
+## Flushing the Pipeline (CI/CD Safety)
+
+OpenTelemetry utilizes unmanaged background worker threads to transmit data over the network. If you are running short-lived automation scripts (like a GitLab CI runner), the Python interpreter will often exit and kill these background threads **before** they have time to transmit your logs, resulting in silent data loss.
+
+While this package provides an `atexit` fallback hook, **you should always explicitly flush the logger in ephemeral environments.**
+
+### Option A: The Context Manager (Recommended)
+Using a `with` block guarantees that the memory queue is flushed exactly when the block concludes, gracefully handling application errors along the way.
+
+```python
+with CoralogixOTelLogger(app_name="auth", subsystem_name="audit", flush_delay_ms=200) as logger:
+    logger.info("Pipeline started.")
+    # Do work...
+    logger.info("Pipeline finished.", payload={"status": "success"})
+
+# <-- The gRPC pipeline is fully and safely drained the moment execution leaves the block.
+```
+
+### Option B: Explicit Flush
+If you are passing the logger around multiple files and cannot use a context manager, manually call `.flush()` right before your script issues a `sys.exit()` or `return`.
+
+```python
+logger.info("Final log entry.")
+
+# Force OpenTelemetry to block and transmit all background queues immediately
+logger.flush()
+```
+
+---
+
+## Fail-Safe Typing Enforcement
+
+To maintain perfectly predictable schemas across your team, the `payload` argument strictly expects a Python dictionary (`dict`).
 
 If a developer mistakenly passes an invalid type (such as a raw string or list) into the `payload` parameter, the SDK safeguards your cluster: it **will not crash your runtime environment**. Instead, it intercepts the error, automatically flags the log severity to `ERROR`, and routes a high-visibility structural misuse notification to your Coralogix dashboard containing the raw rejected chunk so you can catch the bug instantly in staging.
 

@@ -105,6 +105,18 @@ class CoralogixOTelLogger:
             self.logger.addHandler(handler)
 
         atexit.register(self.flush)
+    
+    def __enter__(self):
+        """Allows the logger to be used in a 'with' block."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Automatically executes when exiting the 'with' block context."""
+        try:
+            self.flush()
+        except Exception:
+            # Prevent flush failures from masking real application exceptions
+            pass
 
     def __str__(self) -> str:
         return f"<Coralogix Logger | App: {self.app_name} | Subsystem: {self.subsystem_name} | Level: {self.log_level_repr}>"
