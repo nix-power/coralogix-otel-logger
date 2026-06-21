@@ -34,6 +34,7 @@ class CoralogixOTelLogger:
         self,
         app_name: str,
         subsystem_name: str,
+        logger_name: Optional[str] = None,
         api_key: Optional[str] = None,
         domain: Optional[str] = None,
         log_level: str = "info",
@@ -42,7 +43,7 @@ class CoralogixOTelLogger:
     ):
         self.app_name = app_name
         self.subsystem_name = subsystem_name
-        self.logger_name = f"cx_{app_name}_{subsystem_name}"
+        self.logger_name = logger_name or f"cx_{app_name}_{subsystem_name}"
         self.cert_path = cert_path
 
         effective_api_key = api_key or os.environ.get("CORALOGIX_API_KEY")
@@ -55,8 +56,6 @@ class CoralogixOTelLogger:
         if domain is None:
             env_region = os.environ.get("CORALOGIX_REGION")
             if env_region:
-                # All Coralogix regions now strictly follow: {region}.coralogix.com
-                # e.g., eu1, eu2, us1, us2, us3, ap1, ap2, ap3
                 self.domain = f"{env_region.lower()}.coralogix.com"
             else:
                 self.domain = "us1.coralogix.com"
@@ -90,34 +89,32 @@ class CoralogixOTelLogger:
 
             exporter = OTLPLogExporter(**exporter_kwargs)
             self.provider.add_log_record_processor(
-
-            BatchLogRecordProcessor(
-                exporter,
-                max_queue_size=2048,
-                max_export_batch_size=50,
-                schedule_delay_millis=flush_delay_ms
-               )
+                BatchLogRecordProcessor(
+                    exporter,
+                    max_queue_size=2048,
+                    max_export_batch_size=50,
+                    schedule_delay_millis=flush_delay_ms
+                )
             )
 
         self.logger = logging.getLogger(self.logger_name)
         self.logger.setLevel(self.log_level_int)
 
-        if not self.logger.handlers:
+        # Additive check: Only add the OTel handler if it isn't already present
+        has_otel_handler = any(isinstance(h, LoggingHandler) for h in self.logger.handlers)
+        if not has_otel_handler:
             handler = LoggingHandler(level=self.log_level_int, logger_provider=self.provider)
             self.logger.addHandler(handler)
 
         atexit.register(self.flush)
-    
+
     def __enter__(self):
-        """Allows the logger to be used in a 'with' block."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Automatically executes when exiting the 'with' block context."""
         try:
             self.flush()
         except Exception:
-            # Prevent flush failures from masking real application exceptions
             pass
 
     def __str__(self) -> str:
@@ -128,6 +125,7 @@ class CoralogixOTelLogger:
             f"CoralogixOTelLogger("
             f"app_name={self.app_name!r}, "
             f"subsystem_name={self.subsystem_name!r}, "
+            f"logger_name={self.logger_name!r}, "
             f"api_key='***', "
             f"domain={self.domain!r}, "
             f"log_level={self.log_level_repr!r}, "
@@ -135,47 +133,45 @@ class CoralogixOTelLogger:
             f")"
         )
 
-    def _log(self, payload: Dict[str, Any], level: Optional[str] = None) -> None:
+    def _log(self, msg: str, payload: Dict[str, Any], level: Optional[str] = None) -> None:
         """
-        Serializes a native dictionary to a string so Coralogix auto-parses it,
-        and ships it via OTel gRPC.
+        Routes the clean plaintext message to native handlers, while attaching the
+        dynamic structured payload to the OTel attribute pipeline via native `extra`.
         """
-        if level:
-            emit_level = self._LEVEL_MAP.get(level.upper(), self.log_level_int)
-        else:
-            emit_level = self.log_level_int
+        emit_level = self._LEVEL_MAP.get(level.upper(), self.log_level_int) if level else self.log_level_int
 
         try:
-            stringified_payload = json.dumps(payload)
-            self.logger.log(emit_level, stringified_payload)
+            # Enforce JSON validation before routing
+            json.dumps(payload)
+            self.logger.log(emit_level, msg, extra={"payload": payload})
         except TypeError as e:
-            fallback_msg = json.dumps({
-                "event_type": "logger_serialization_error",
-                "error": str(e),
-                "app": self.app_name
-            })
-            self.logger.error(fallback_msg)
+            fallback_extra = {
+                "payload": {
+                    "event_type": "logger_serialization_error",
+                    "error": str(e),
+                    "app": self.app_name
+                }
+            }
+            self.logger.error("Serialization Error", extra=fallback_extra)
 
     def _transform(self, level: str, msg: str, payload: Optional[Dict[str, Any]] = None) -> None:
         """
-        Transforms incoming arguments into a standardized,
-        flat JSON payload structure to eliminate platform rendering ambiguity.
+        Validates structure to eliminate platform rendering ambiguity and routes to _log.
         """
-        out_payload = {"message": msg}
+        safe_payload = {}
 
         if payload is not None:
             if isinstance(payload, dict):
-                out_payload.update(payload)
+                safe_payload = payload
             else:
-                out_payload.update({
+                safe_payload = {
                     "event_type": "logger_payload_type_error",
                     "logger_warning": f"Passed an invalid payload type ({type(payload).__name__}). Expected 'dict'.",
                     "rejected_raw_payload": str(payload)[:500]
-                })
+                }
                 level = "ERROR"
 
-        # Now that the data is transformed, hand it over to the I/O engine to ship it
-        self._log(out_payload, level=level)
+        self._log(msg, safe_payload, level=level)
 
     def debug(self, msg: str, payload: Optional[Dict[str, Any]] = None) -> None:
         self._transform("DEBUG", msg, payload)
@@ -193,6 +189,5 @@ class CoralogixOTelLogger:
         self._transform("CRITICAL", msg, payload)
 
     def flush(self) -> None:
-        """Forces the batch processor to send any remaining logs immediately."""
         if hasattr(self, 'provider') and hasattr(self.provider, 'force_flush'):
             self.provider.force_flush()
