@@ -113,6 +113,19 @@ OpenTelemetry utilizes unmanaged background worker threads to transmit data over
 
 ---
 
+## Coralogix UI Rendering & Schema Alignment
+
+OpenTelemetry maps log messages directly to the OTLP protocol `body` block. However, when an OTel packet contains rich key-value lists, the Coralogix frontend UI column template bypasses the native protocol body and scans the custom attribute tree searching for a root-level key string to render as the main dashboard headline.
+
+To guarantee crisp row readability out of the box, **this SDK intentionally injects a root-level `"message"` key inside your `attributes.payload` namespace.**
+
+### A Note on Custom Infrastructure Schemas
+`message` is the standard anchor for string headers. However, user-defined metadata spaces in Coralogix are dynamic. If your enterprise infrastructure team has manually deleted or renamed the `"message"` field mapping inside your Coralogix account's **Schema Manager** settings, the Coralogix column template will fail to resolve the path. It will fall back to an automated guessing heuristic, causing your main grid layout to randomly alternate text.
+
+Ensure `"message"` is preserved as a designated String field in your account's schema configuration to lock down uniform layout fidelity across your logs.
+
+---
+
 ## Fail-Safe Typing Enforcement
 
 To maintain perfectly predictable schemas across your team, the `payload` argument strictly expects a Python dictionary (`dict`).

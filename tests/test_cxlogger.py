@@ -83,10 +83,8 @@ class TestCoralogixOTelLogger:
         assert kwargs.get("max_queue_size") == 2048
 
     def test_additive_logger_behavior(self, clean_env):
-        """Ensures the wrapper seamlessly adopts existing logger handlers without destroying them."""
         from opentelemetry.sdk._logs import LoggingHandler
 
-        # Mock an application that already configured a standard terminal logger
         native_logger = logging.getLogger("company.main.logger")
         stream_handler = logging.StreamHandler()
         native_logger.addHandler(stream_handler)
@@ -102,7 +100,6 @@ class TestCoralogixOTelLogger:
         assert stream_handler in native_logger.handlers
         assert any(isinstance(h, LoggingHandler) for h in native_logger.handlers)
 
-        # Cleanup global registry for next tests
         native_logger.handlers.clear()
 
     def test_reuses_existing_logger_provider(self, clean_env):
@@ -136,7 +133,7 @@ class TestCoralogixOTelLogger:
     # ==========================================
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_valid_payload_transformation(self):
-        """Test that the extra parameter routes perfectly and the base msg stays clean."""
+        """Verify the payload captures the explicit UI anchor 'message' alongside metadata."""
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
 
         with patch.object(logger.logger, 'log') as mock_log:
@@ -145,6 +142,7 @@ class TestCoralogixOTelLogger:
             args, kwargs = mock_log.call_args
             assert args[0] == logging.INFO
             assert args[1] == "Test message"
+            assert kwargs["extra"]["payload"]["message"] == "Test message"
             assert kwargs["extra"]["payload"]["user"] == "john.doe"
 
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
@@ -157,6 +155,7 @@ class TestCoralogixOTelLogger:
             args, kwargs = mock_log.call_args
             assert args[0] == logging.ERROR
             assert args[1] == "Test message"
+            assert kwargs["extra"]["payload"]["message"] == "Test message"
             assert kwargs["extra"]["payload"]["event_type"] == "logger_payload_type_error"
             assert "Passed an invalid payload type (list)" in kwargs["extra"]["payload"]["logger_warning"]
 
