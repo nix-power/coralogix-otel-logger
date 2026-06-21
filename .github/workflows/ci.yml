@@ -7,9 +7,66 @@ on:
     branches: [ "main" ]
 
 jobs:
+  # STEP 1: Detect which files changed
+  change-detector:
+    runs-on: ubuntu-latest
+    outputs:
+      cxlogger_non_init_changed: ${{ steps.cxlogger_non_init_filter.outputs.cxlogger_non_init }}
+      cxlogger_init_changed: ${{ steps.cxlogger_init_filter.outputs.cxlogger_init }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check src/cxlogger changes except __init__.py
+        uses: dorny/paths-filter@v4
+        id: cxlogger_non_init_filter
+        with:
+          predicate-quantifier: every
+          filters: |
+            cxlogger_non_init:
+              - 'src/cxlogger/**'
+              - '!src/cxlogger/__init__.py'
+
+      - name: Check src/cxlogger/__init__.py changes
+        uses: dorny/paths-filter@v4
+        id: cxlogger_init_filter
+        with:
+          filters: |
+            cxlogger_init:
+              - 'src/cxlogger/__init__.py'
+
+      - name: Debug detected changes
+        run: |
+          echo "cxlogger_non_init_changed=${{ steps.cxlogger_non_init_filter.outputs.cxlogger_non_init }}"
+          echo "cxlogger_init_changed=${{ steps.cxlogger_init_filter.outputs.cxlogger_init }}"
+
+  # STEP 2: Fail if src/cxlogger changes are incomplete
+  require_cxlogger_init_update:
+    name: Require matching src/cxlogger changes
+    needs: change-detector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate src/cxlogger change consistency
+        if: ${{ needs.change-detector.outputs.cxlogger_non_init_changed != needs.change-detector.outputs.cxlogger_init_changed }}
+        run: |
+          echo "Invalid src/cxlogger change set."
+          echo "If files under src/cxlogger/ are changed, src/cxlogger/__init__.py must also be changed."
+          echo "If src/cxlogger/__init__.py is changed, at least one other file under src/cxlogger/ must also be changed."
+          exit 1
+
+      - name: src/cxlogger change consistency passed
+        if: ${{ needs.change-detector.outputs.cxlogger_non_init_changed == needs.change-detector.outputs.cxlogger_init_changed }}
+        run: |
+          echo "src/cxlogger change consistency passed."
+
+  # STEP 3: Run Flake8
   lint:
     name: Flake8 Linting
+    needs: require_cxlogger_init_update
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -28,10 +85,12 @@ jobs:
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
+  # STEP 4: Run Unit Tests
   unittest:
     name: Pytest Unit Tests
     needs: lint
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
