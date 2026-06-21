@@ -13,8 +13,9 @@ This package is designed to solve the common pitfalls of enterprise OTel deploym
 When deploying OTel in corporate environments, engineers typically run into critical infrastructure roadblocks. This logger handles them automatically:
 
 1. **Additive Handler Architecture:** Instead of forcing you to manage two separate logging pipelines (one for `stdout` and one for Coralogix), this SDK seamlessly injects itself into any existing standard Python logger.
-2. **Deterministic Schemas via `extra`:** Raw JSON dumped to standard out causes mapping conflicts in database backends. This logger preserves clean, human-readable terminal output while routing deep structured metadata as OpenTelemetry attributes via Python's native `extra` mechanism. 
-3. **Global State Conflicts:** Safely guards OpenTelemetry singletons to prevent network leaks and duplication in containerized environments.
+2. **Deterministic Schemas via `extra`:** Raw JSON dumped to standard out causes mapping conflicts in database backends. This logger preserves clean, human-readable terminal output while routing deep structured metadata as OpenTelemetry attributes via Python's native `extra` mechanism.
+3. **Accurate Caller Metadata:** Solves the common "wrapper trap" by dynamically traversing execution stacks to bypass the SDK wrapper methods. Logs will accurately report the exact file, function, and line number of your application code, completely immune to interactive shells like Jupyter/IPython.
+4. **Global State Conflicts:** Safely guards OpenTelemetry singletons to prevent network leaks and duplication in containerized environments.
 
 ---
 

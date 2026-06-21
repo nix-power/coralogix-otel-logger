@@ -4,7 +4,7 @@ import pytest
 import logging
 from unittest.mock import patch, MagicMock
 
-from cxlogger import CoralogixOTelLogger
+from cxlogger.cxlogger import CoralogixOTelLogger, _CallerMetadataFilter
 from cxlogger.exceptions import CoralogixConfigurationError
 
 @pytest.fixture(autouse=True)
@@ -99,6 +99,8 @@ class TestCoralogixOTelLogger:
         assert len(native_logger.handlers) == 2
         assert stream_handler in native_logger.handlers
         assert any(isinstance(h, LoggingHandler) for h in native_logger.handlers)
+        # Verify the dynamic stack filter was securely attached to the root logger
+        assert any(isinstance(f, _CallerMetadataFilter) for f in native_logger.filters)
 
         native_logger.handlers.clear()
 
@@ -133,7 +135,6 @@ class TestCoralogixOTelLogger:
     # ==========================================
     @patch.dict(os.environ, {"CORALOGIX_API_KEY": "env-key"})
     def test_valid_payload_transformation(self):
-        """Verify the payload captures the explicit UI anchor 'message' alongside metadata."""
         logger = CoralogixOTelLogger(app_name="app", subsystem_name="sub")
 
         with patch.object(logger.logger, 'log') as mock_log:
@@ -218,3 +219,23 @@ class TestCoralogixOTelLogger:
                 with CoralogixOTelLogger(app_name="app", subsystem_name="sub"):
                     raise ValueError("App crashed!")
             mock_flush.assert_called_once()
+
+    # ==========================================
+    # 7. CALLER METADATA FILTER TESTS
+    # ==========================================
+    def test_caller_metadata_filter_rewrites_record(self):
+        filter_instance = _CallerMetadataFilter()
+        # Create a dummy LogRecord mimicking one initialized inside cxlogger.py
+        record = logging.LogRecord(
+            name="test", level=logging.INFO,
+            pathname="/dummy/path/cxlogger.py", lineno=144,
+            msg="test", args=(), exc_info=None
+        )
+        
+        # Execute the filter; it should dynamically inspect the stack and overwrite pathname
+        filter_instance.filter(record)
+        
+        # Because the stack inspection walks out of the test environment, 
+        # the base filename should be exactly our test file, not the SDK wrapper.
+        assert record.filename != "cxlogger.py"
+        assert record.filename == "test_cxlogger.py"

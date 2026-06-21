@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import atexit
@@ -11,6 +12,45 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 
 from .exceptions import CoralogixConfigurationError
+
+# Identify the core logging module's source file to safely skip it during stack traversal
+_srcfile = os.path.normcase(logging._srcfile) if hasattr(logging, '_srcfile') else None
+
+class _CallerMetadataFilter(logging.Filter):
+    """
+    Dynamically walks the stack to find the true execution context,
+    bypassing both the standard logging framework and this SDK's wrapper.
+    This guarantees accurate OpenTelemetry code.* attributes even in IPython/Jupyter.
+    """
+    def filter(self, record):
+        try:
+            f = sys._getframe()
+            while f:
+                co = f.f_code
+                filename = os.path.normcase(co.co_filename)
+                base_name = os.path.basename(filename)
+
+                # 1. Is this frame part of the native Python logging library?
+                is_logging = (filename == _srcfile)
+
+                # 2. Is this frame part of our SDK?
+                # (Checks file name for prod, and class instance for IPython/Jupyter)
+                f_self = f.f_locals.get('self')
+                is_sdk_class = f_self is not None and f_self.__class__.__name__ in ('CoralogixOTelLogger', '_CallerMetadataFilter')
+                is_wrapper_file = base_name.startswith('cxlogger.py')
+
+                #3. If the frame is NEITHER the logging module NOR our SDK, we found the true caller!
+                if not is_logging and not is_sdk_class and not is_wrapper_file:
+                    record.pathname = co.co_filename
+                    record.filename = base_name
+                    record.lineno = f.f_lineno
+                    record.funcName = co.co_name
+                    break
+
+                f = f.f_back
+        except Exception:
+            pass # Fail safely, preserving the original record if inspection is blocked
+        return True
 
 
 class CoralogixOTelLogger:
@@ -100,6 +140,10 @@ class CoralogixOTelLogger:
         self.logger = logging.getLogger(self.logger_name)
         self.logger.setLevel(self.log_level_int)
 
+        # Attach the dynamic stack filter to correct caller metadata
+        if not any(isinstance(f, _CallerMetadataFilter) for f in self.logger.filters):
+            self.logger.addFilter(_CallerMetadataFilter())
+
         has_otel_handler = any(isinstance(h, LoggingHandler) for h in self.logger.handlers)
         if not has_otel_handler:
             handler = LoggingHandler(level=self.log_level_int, logger_provider=self.provider)
@@ -156,8 +200,6 @@ class CoralogixOTelLogger:
         """
         Validates structure to eliminate platform rendering ambiguity and routes to _log.
         """
-        # UI Bridge: Seed the dictionary with the mandatory headline token 'message'
-        # This prevents Coralogix's UI from making blind structural guesses
         safe_payload = {"message": msg}
 
         if payload is not None:
