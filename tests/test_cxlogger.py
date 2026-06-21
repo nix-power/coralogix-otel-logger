@@ -231,12 +231,11 @@ class TestCoralogixOTelLogger:
             pathname="/dummy/path/cxlogger.py", lineno=144,
             msg="test", args=(), exc_info=None
         )
-
+        
         # Execute the filter; it should dynamically inspect the stack and overwrite pathname
         filter_instance.filter(record)
-
-        # Because the stack inspection walks out of the test environment,
-        # it should no longer point to cxlogger.py
-        assert "cxlogger.py" not in record.pathname
-        # It should resolve to the exact file executing this test logic
-        assert "test_cxlogger.py" in record.pathname
+        
+        # Because the stack inspection walks out of the test environment, 
+        # the base filename should be exactly our test file, not the SDK wrapper.
+        assert record.filename != "cxlogger.py"
+        assert record.filename == "test_cxlogger.py"
