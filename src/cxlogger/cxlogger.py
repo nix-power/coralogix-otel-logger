@@ -100,7 +100,6 @@ class CoralogixOTelLogger:
         self.logger = logging.getLogger(self.logger_name)
         self.logger.setLevel(self.log_level_int)
 
-        # Additive check: Only add the OTel handler if it isn't already present
         has_otel_handler = any(isinstance(h, LoggingHandler) for h in self.logger.handlers)
         if not has_otel_handler:
             handler = LoggingHandler(level=self.log_level_int, logger_provider=self.provider)
@@ -141,7 +140,6 @@ class CoralogixOTelLogger:
         emit_level = self._LEVEL_MAP.get(level.upper(), self.log_level_int) if level else self.log_level_int
 
         try:
-            # Enforce JSON validation before routing
             json.dumps(payload)
             self.logger.log(emit_level, msg, extra={"payload": payload})
         except TypeError as e:
@@ -158,17 +156,19 @@ class CoralogixOTelLogger:
         """
         Validates structure to eliminate platform rendering ambiguity and routes to _log.
         """
-        safe_payload = {}
+        # UI Bridge: Seed the dictionary with the mandatory headline token 'message'
+        # This prevents Coralogix's UI from making blind structural guesses
+        safe_payload = {"message": msg}
 
         if payload is not None:
             if isinstance(payload, dict):
-                safe_payload = payload
+                safe_payload.update(payload)
             else:
-                safe_payload = {
+                safe_payload.update({
                     "event_type": "logger_payload_type_error",
                     "logger_warning": f"Passed an invalid payload type ({type(payload).__name__}). Expected 'dict'.",
                     "rejected_raw_payload": str(payload)[:500]
-                }
+                })
                 level = "ERROR"
 
         self._log(msg, safe_payload, level=level)
